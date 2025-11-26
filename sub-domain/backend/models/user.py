@@ -4,7 +4,7 @@ import bcrypt
 import enum
 
 class UserRole(enum.Enum):
-    ADMIN = 'ADMIN'
+    # Note: ADMIN removed from subdomain - only property managers, staff, and tenants
     MANAGER = 'MANAGER'  # Maps to property_manager in code
     PROPERTY_MANAGER = 'MANAGER'  # Alias for MANAGER
     STAFF = 'STAFF'
@@ -20,7 +20,10 @@ class UserRole(enum.Enum):
         # Map old format to new format
         if value_upper == 'PROPERTY_MANAGER':
             return cls.MANAGER
-        if value_upper in ['ADMIN', 'MANAGER', 'STAFF', 'TENANT']:
+        # ADMIN is not supported in subdomain - treat as MANAGER for backward compatibility
+        if value_upper == 'ADMIN':
+            return cls.MANAGER  # Map ADMIN to MANAGER for backward compatibility
+        if value_upper in ['MANAGER', 'STAFF', 'TENANT']:
             return cls[value_upper]
         return cls.TENANT
 
@@ -39,6 +42,7 @@ class User(db.Model):
     date_of_birth = db.Column(db.Date)
     
     # Role and Status - Match database enum values exactly
+    # Note: Database may still have ADMIN in enum, but subdomain doesn't use it
     # Database has: enum('ADMIN','MANAGER','TENANT','STAFF')
     role = db.Column(db.Enum('ADMIN', 'MANAGER', 'TENANT', 'STAFF', name='role', create_constraint=False), nullable=False, default='TENANT')
     is_active = db.Column(db.Boolean, default=True, nullable=True)  # Database has nullable=YES
@@ -153,7 +157,8 @@ class User(db.Model):
     def is_property_manager(self):
         """Check if user is a property manager."""
         role_str = str(self.role).upper() if self.role else ''
-        return role_str in ['MANAGER', 'ADMIN'] or (isinstance(self.role, UserRole) and self.role in [UserRole.MANAGER, UserRole.ADMIN])
+        # ADMIN is not supported in subdomain - treat as MANAGER for backward compatibility
+        return role_str in ['MANAGER', 'ADMIN'] or (isinstance(self.role, UserRole) and self.role == UserRole.MANAGER)
     
     def is_staff(self):
         """Check if user is staff."""
@@ -174,8 +179,9 @@ class User(db.Model):
             else:
                 role_str = str(self.role).upper() if self.role else 'TENANT'
                 # Map database values to model values
+                # ADMIN is not supported in subdomain - map to property_manager for backward compatibility
                 role_map = {
-                    'ADMIN': 'admin',
+                    'ADMIN': 'property_manager',  # Map ADMIN to property_manager in subdomain
                     'MANAGER': 'property_manager',
                     'STAFF': 'staff',
                     'TENANT': 'tenant'

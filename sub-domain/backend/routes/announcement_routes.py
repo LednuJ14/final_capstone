@@ -30,7 +30,7 @@ def can_manage_announcements(user):
     
     # Check if user is a property manager or staff
     # PROPERTY_MANAGER is an alias for MANAGER
-    allowed_roles = ['MANAGER', 'PROPERTY_MANAGER', 'STAFF', 'ADMIN']
+    allowed_roles = ['MANAGER', 'PROPERTY_MANAGER', 'STAFF']
     return user_role_str in allowed_roles
 
 def can_view_announcement(user, announcement):
@@ -48,7 +48,7 @@ def can_view_announcement(user, announcement):
         user_role_str = str(user_role).upper() if user_role else ''
     
     # Property managers and staff can see all announcements
-    if user_role_str in ['MANAGER', 'PROPERTY_MANAGER', 'STAFF', 'ADMIN']:
+    if user_role_str in ['MANAGER', 'PROPERTY_MANAGER', 'STAFF']:
         return True
     
     # For tenants: check if announcement is for their property or global (no property_id)
@@ -344,6 +344,22 @@ def create_announcement():
         
         current_app.logger.info(f"Announcement created: {announcement.id} by user {current_user.id}")
         
+        # Create notifications for all tenants in the property when announcement is published
+        if is_published and property_id:
+            try:
+                from services.notification_service import NotificationService
+                from models.tenant import Tenant
+                # Get all tenants for this property
+                tenants = Tenant.query.filter_by(property_id=property_id).all()
+                for tenant in tenants:
+                    try:
+                        NotificationService.notify_announcement(announcement, tenant.id)
+                    except Exception as tenant_notif_error:
+                        current_app.logger.warning(f"Failed to create notification for tenant {tenant.id}: {str(tenant_notif_error)}")
+            except Exception as notif_error:
+                # Don't fail announcement creation if notification fails
+                current_app.logger.warning(f"Failed to create notifications for announcement {announcement.id}: {str(notif_error)}")
+        
         return jsonify({
             'message': 'Announcement created successfully',
             'announcement': announcement.to_dict(include_author_info=True)
@@ -383,7 +399,7 @@ def update_announcement(announcement_id):
         else:
             user_role_str = str(user_role).upper() if user_role else ''
         
-        if user_role_str not in ['MANAGER', 'PROPERTY_MANAGER', 'ADMIN'] and announcement.published_by != current_user.id:
+        if user_role_str not in ['MANAGER', 'PROPERTY_MANAGER'] and announcement.published_by != current_user.id:
             return jsonify({'error': 'You can only edit announcements you created'}), 403
         
         # Get JSON data and handle case where it might be a string
@@ -477,8 +493,8 @@ def delete_announcement(announcement_id):
         else:
             user_role_str = str(user_role).upper() if user_role else ''
         
-        # Only managers and admins can delete
-        if user_role_str not in ['MANAGER', 'PROPERTY_MANAGER', 'ADMIN']:
+        # Only property managers can delete
+        if user_role_str not in ['MANAGER', 'PROPERTY_MANAGER']:
             return jsonify({'error': 'Only property managers can delete announcements'}), 403
         
         # Soft delete (set is_published to False)

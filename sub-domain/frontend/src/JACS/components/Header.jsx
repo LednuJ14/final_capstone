@@ -14,6 +14,7 @@ import TenantChatsModal from '../pages/tenant/TenantChatsModal';
 import ChatsModal from '../pages/property manager/ChatsModal';
 import StaffChatsModal from '../pages/staff/StaffChatsModal';
 import StaffScheduleModal from '../pages/staff/StaffScheduleModal';
+import NotificationBell from './NotificationBell';
 
 const Header = ({ userType = 'manager' }) => {
   const { property, loading: propertyLoading } = useProperty();
@@ -222,12 +223,8 @@ const Header = ({ userType = 'manager' }) => {
 
         {/* Right Side - User Profile */}
         <div className="flex items-center space-x-4">
-          {/* Notifications (for tenant) */}
-          {isTenant && (
-            <button className="relative text-gray-600 hover:text-black">
-              <Bell className="w-5 h-5" />
-            </button>
-          )}
+          {/* Notifications (for tenant, property manager, and staff) */}
+          <NotificationBell isDarkMode={!isTenant} />
 
           {/* Profile Dropdown */}
           <div className="relative profile-dropdown">

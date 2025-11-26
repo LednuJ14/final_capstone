@@ -138,7 +138,7 @@ def get_bills():
             else:
                 user_role = str(current_user.role).upper()
             
-            if user_role in ['MANAGER', 'PROPERTY_MANAGER', 'ADMIN']:
+            if user_role in ['MANAGER', 'PROPERTY_MANAGER']:
                 try:
                     # Get the first managed property
                     managed_property = Property.query.filter_by(
@@ -239,7 +239,7 @@ def get_bills():
         }), 200
 
 @billing_bp.route('/bills', methods=['POST'])
-@require_role(['MANAGER', 'ADMIN'])
+@require_role(['MANAGER'])
 def create_bill(current_user):
     """Create a new bill (Property Manager only)."""
     try:
@@ -257,7 +257,7 @@ def create_bill(current_user):
             else:
                 user_role = str(current_user.role).upper()
             
-            if user_role in ['MANAGER', 'PROPERTY_MANAGER', 'ADMIN']:
+            if user_role in ['MANAGER', 'PROPERTY_MANAGER']:
                 try:
                     # Get the first managed property
                     managed_property = Property.query.filter_by(
@@ -390,6 +390,14 @@ def create_bill(current_user):
             current_app.logger.error(f"Database commit error: {str(commit_error)}", exc_info=True)
             raise  # Re-raise to be caught by outer exception handler
         
+        # Create notification for tenant
+        try:
+            from services.notification_service import NotificationService
+            NotificationService.notify_bill_created(bill)
+        except Exception as notif_error:
+            # Don't fail the bill creation if notification fails
+            current_app.logger.warning(f"Failed to create notification for bill {bill.id}: {str(notif_error)}")
+        
         return jsonify({
             'message': 'Bill created successfully',
             'bill': bill.to_dict(include_tenant=True, include_unit=True)
@@ -504,6 +512,14 @@ def submit_payment_proof(bill_id):
                 }), 500
             return jsonify({'error': 'Failed to submit payment proof. Please try again.'}), 500
         
+        # Create notification for property manager
+        try:
+            from services.notification_service import NotificationService
+            NotificationService.notify_pm_payment_submitted(payment)
+        except Exception as notif_error:
+            # Don't fail payment submission if notification fails
+            current_app.logger.warning(f"Failed to create PM notification for payment {payment.id}: {str(notif_error)}")
+        
         return jsonify({
             'message': 'Payment proof submitted successfully. Waiting for manager approval.',
             'payment': payment.to_dict(include_bill=True)
@@ -525,7 +541,7 @@ def submit_payment_proof(bill_id):
 # =====================================================
 
 @billing_bp.route('/payments/<int:payment_id>/approve', methods=['POST'])
-@require_role(['MANAGER', 'ADMIN'])
+@require_role(['MANAGER'])
 def approve_payment(current_user, payment_id):
     """Approve a payment proof (Property Manager only)."""
     try:
@@ -543,7 +559,7 @@ def approve_payment(current_user, payment_id):
             else:
                 user_role = str(current_user.role).upper()
             
-            if user_role in ['MANAGER', 'PROPERTY_MANAGER', 'ADMIN']:
+            if user_role in ['MANAGER', 'PROPERTY_MANAGER']:
                 try:
                     managed_property = Property.query.filter_by(
                         manager_id=current_user.id
@@ -596,6 +612,14 @@ def approve_payment(current_user, payment_id):
         
         db.session.commit()
         
+        # Create notification for tenant
+        try:
+            from services.notification_service import NotificationService
+            NotificationService.notify_payment_approved(payment)
+        except Exception as notif_error:
+            # Don't fail the approval if notification fails
+            current_app.logger.warning(f"Failed to create notification for payment {payment.id}: {str(notif_error)}")
+        
         return jsonify({
             'message': 'Payment approved successfully',
             'payment': payment.to_dict(include_bill=True),
@@ -608,7 +632,7 @@ def approve_payment(current_user, payment_id):
         return jsonify({'error': 'Failed to approve payment'}), 500
 
 @billing_bp.route('/payments/<int:payment_id>/reject', methods=['POST'])
-@require_role(['MANAGER', 'ADMIN'])
+@require_role(['MANAGER'])
 def reject_payment(current_user, payment_id):
     """Reject a payment proof (Property Manager only)."""
     try:
@@ -627,7 +651,7 @@ def reject_payment(current_user, payment_id):
             else:
                 user_role = str(current_user.role).upper()
             
-            if user_role in ['MANAGER', 'PROPERTY_MANAGER', 'ADMIN']:
+            if user_role in ['MANAGER', 'PROPERTY_MANAGER']:
                 try:
                     managed_property = Property.query.filter_by(
                         manager_id=current_user.id
@@ -658,6 +682,14 @@ def reject_payment(current_user, payment_id):
             payment.notes = f"{payment.notes or ''}\nRejection reason: {data['rejection_reason']}".strip()
         
         db.session.commit()
+        
+        # Create notification for tenant
+        try:
+            from services.notification_service import NotificationService
+            NotificationService.notify_payment_rejected(payment, reason=data.get('rejection_reason'))
+        except Exception as notif_error:
+            # Don't fail the rejection if notification fails
+            current_app.logger.warning(f"Failed to create notification for payment {payment.id}: {str(notif_error)}")
         
         return jsonify({
             'message': 'Payment rejected',
@@ -692,7 +724,7 @@ def get_payments():
             else:
                 user_role = str(current_user.role).upper()
             
-            if user_role in ['MANAGER', 'PROPERTY_MANAGER', 'ADMIN']:
+            if user_role in ['MANAGER', 'PROPERTY_MANAGER']:
                 try:
                     # Get the first managed property
                     managed_property = Property.query.filter_by(
@@ -801,7 +833,7 @@ def get_bills_dashboard():
             else:
                 user_role = str(current_user.role).upper()
             
-            if user_role in ['MANAGER', 'PROPERTY_MANAGER', 'ADMIN']:
+            if user_role in ['MANAGER', 'PROPERTY_MANAGER']:
                 try:
                     # Get the first managed property
                     managed_property = Property.query.filter_by(

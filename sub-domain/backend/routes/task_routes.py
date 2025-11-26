@@ -263,6 +263,14 @@ def create_task():
         db.session.add(task)
         db.session.commit()
         
+        # Notify assigned staff member if task is assigned
+        if task.assigned_to:
+            try:
+                from services.notification_service import NotificationService
+                NotificationService.notify_staff_task_assigned(task, task.assigned_to)
+            except Exception as notif_error:
+                current_app.logger.warning(f"Failed to create notification for task {task.id}: {str(notif_error)}")
+        
         current_app.logger.info(f"Task created: {task.id} by user {current_user.id}")
         
         return jsonify({
@@ -323,11 +331,19 @@ def update_task(task_id):
                     task.due_date = None
             
             if 'assigned_to' in data:
+                old_assigned_to = task.assigned_to
                 if data['assigned_to'] and str(data['assigned_to']).isdigit():
                     assigned_user = User.query.get(int(data['assigned_to']))
                     if not assigned_user:
                         return jsonify({'error': 'Assigned user not found'}), 400
                     task.assigned_to = assigned_user.id
+                    # Notify newly assigned staff member
+                    if task.assigned_to != old_assigned_to:
+                        try:
+                            from services.notification_service import NotificationService
+                            NotificationService.notify_staff_task_assigned(task, task.assigned_to)
+                        except Exception as notif_error:
+                            current_app.logger.warning(f"Failed to create notification for task {task.id}: {str(notif_error)}")
                 else:
                     task.assigned_to = None
             
@@ -359,6 +375,14 @@ def update_task(task_id):
                 return jsonify({'error': f'Invalid status: {data["status"]}'}), 400
         
         db.session.commit()
+        
+        # Notify assigned staff member if task is assigned and was updated
+        if task.assigned_to and ('title' in data or 'description' in data or 'priority' in data or 'due_date' in data):
+            try:
+                from services.notification_service import NotificationService
+                NotificationService.notify_staff_task_updated(task, task.assigned_to)
+            except Exception as notif_error:
+                current_app.logger.warning(f"Failed to create notification for task {task.id}: {str(notif_error)}")
         
         current_app.logger.info(f"Task updated: {task_id} by user {current_user.id}")
         

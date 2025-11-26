@@ -97,10 +97,21 @@ def create_staff():
         print(f"Received staff creation data: {data}")
         
         # Validate required fields (only fields that exist in database)
-        required_fields = ['email', 'username', 'password', 'first_name', 'last_name', 'employee_id', 'staff_role']
+        required_fields = ['email', 'username', 'password', 'first_name', 'last_name', 'employee_id', 'staff_role', 'property_id']
         for field in required_fields:
             if field not in data or not data[field]:
                 return jsonify({'error': f'{field} is required'}), 400
+        
+        # Validate property_id exists
+        property_id = data.get('property_id')
+        try:
+            property_id = int(property_id)
+            from models.property import Property
+            property_obj = Property.query.get(property_id)
+            if not property_obj:
+                return jsonify({'error': f'Property with ID {property_id} does not exist'}), 400
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid property_id'}), 400
         
         # Validate email format
         if not re.match(r'^[^@]+@[^@]+\.[^@]+$', data['email']):
@@ -143,7 +154,8 @@ def create_staff():
         staff = Staff(
             user_id=user.id,
             employee_id=data['employee_id'],
-            staff_role=staff_role_str  # Use string value directly
+            staff_role=staff_role_str,  # Use string value directly
+            property_id=property_id
         )
         
         db.session.add(staff)

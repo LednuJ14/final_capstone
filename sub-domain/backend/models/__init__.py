@@ -8,9 +8,10 @@ from .announcement import Announcement
 from .document import Document
 from .task import Task
 from .feedback import Feedback
+from .notification import Notification, NotificationType, NotificationPriority
 
 __all__ = [
     'User', 'Property', 'Unit', 'Tenant', 'TenantUnit', 'Staff',
     'Bill', 'Payment', 'MaintenanceRequest', 'Announcement', 
-    'Document', 'Task', 'Feedback'
+    'Document', 'Task', 'Feedback', 'Notification', 'NotificationType', 'NotificationPriority'
 ]

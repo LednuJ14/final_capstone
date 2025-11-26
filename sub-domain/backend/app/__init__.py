@@ -169,6 +169,7 @@ def create_app(config_name=None):
     from routes.task_routes import task_bp
     from routes.analytics_routes import analytics_bp
     from routes.feedback_routes import feedback_bp
+    from routes.notification_routes import notification_bp
     
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(user_bp, url_prefix='/api/users')
@@ -182,6 +183,7 @@ def create_app(config_name=None):
     app.register_blueprint(task_bp, url_prefix='/api/tasks')
     app.register_blueprint(analytics_bp, url_prefix='/api/analytics')
     app.register_blueprint(feedback_bp, url_prefix='/api/feedback')
+    app.register_blueprint(notification_bp, url_prefix='/api/notifications')
     
     # Create upload directories
     upload_dir = os.path.join(app.instance_path, app.config['UPLOAD_FOLDER'])

@@ -100,7 +100,7 @@ def get_documents():
                     query = query.filter(Document.visibility.in_(['public', 'tenants_only', 'staff_only']))
             except Exception:
                 query = query.filter(Document.visibility.in_(['public', 'tenants_only', 'staff_only']))
-        # Property managers and admins can see all documents (no filter)
+        # Property managers can see all documents (no filter)
         
         # Apply search filter
         if search:
@@ -182,7 +182,7 @@ def upload_document():
         elif isinstance(current_user.role, str):
             user_role_str = current_user.role.upper()
         
-        allowed_roles = ['TENANT', 'STAFF', 'MANAGER', 'PROPERTY_MANAGER', 'ADMIN']
+        allowed_roles = ['TENANT', 'STAFF', 'MANAGER', 'PROPERTY_MANAGER']
         if user_role_str not in allowed_roles:
             return jsonify({'error': 'Access denied. Only tenants, staff, and property managers can upload documents.'}), 403
         
@@ -363,7 +363,7 @@ def upload_document():
 
 @document_bp.route('/<int:document_id>/download', methods=['GET'])
 def download_document(document_id):
-    """Download a document file (JWT optional for main domain admin access)."""
+    """Download a document file (JWT optional for main domain access)."""
     try:
         document = Document.query.get(document_id)
         if not document:
@@ -406,7 +406,7 @@ def download_document(document_id):
                         if document.visibility == 'private' and document.uploaded_by != current_user.id:
                             return jsonify({'error': 'Access denied'}), 403
         except Exception:
-            # If no JWT token, allow access (for main domain admin downloads)
+            # If no JWT token, allow access (for main domain downloads)
             # This allows main domain to download documents via API
             pass
         
@@ -446,7 +446,7 @@ def update_document(document_id):
         
         # Users can update their own documents, managers/staff can update any
         if document.uploaded_by != current_user.id:
-            if user_role_str not in ['MANAGER', 'PROPERTY_MANAGER', 'STAFF', 'ADMIN']:
+            if user_role_str not in ['MANAGER', 'PROPERTY_MANAGER', 'STAFF']:
                 return jsonify({'error': 'Access denied. You can only update your own documents.'}), 403
         
         document = Document.query.get(document_id)
@@ -523,7 +523,7 @@ def delete_document(document_id):
         
         # Users can delete their own documents, managers/staff can delete any
         if document.uploaded_by != current_user.id:
-            if user_role_str not in ['MANAGER', 'PROPERTY_MANAGER', 'STAFF', 'ADMIN']:
+            if user_role_str not in ['MANAGER', 'PROPERTY_MANAGER', 'STAFF']:
                 return jsonify({'error': 'Access denied. You can only delete your own documents.'}), 403
         
         # Delete file from filesystem
@@ -568,7 +568,7 @@ def get_document_types():
 @document_bp.route('/by-property/<int:property_id>', methods=['GET'])
 @jwt_required()
 def get_documents_by_property(property_id):
-    """Get all documents for a specific property (for main domain admins or property managers)."""
+    """Get all documents for a specific property (for property managers)."""
     try:
         current_user = get_current_user()
         if not current_user:
@@ -588,7 +588,7 @@ def get_documents_by_property(property_id):
             user_role_str = current_user.role.upper()
         
         # Allow managers, property managers, and tenants (for their own property)
-        # Note: Admins don't exist in subdomain, they access from main domain
+        # Note: This endpoint is for main domain access (subdomain doesn't have admin role)
         if user_role_str not in ['MANAGER', 'PROPERTY_MANAGER']:
             # Check if user is a tenant and this is their property
             if user_role_str == 'TENANT':
@@ -673,7 +673,7 @@ def get_documents_by_property(property_id):
 
 @document_bp.route('/all', methods=['GET'])
 def get_all_documents():
-    """Get all documents across all properties (for main domain admins - accessible without JWT for cross-domain access)."""
+    """Get all documents across all properties (for main domain access - accessible without JWT for cross-domain access)."""
     try:
         # Optional: Add API key check for security (can be configured via environment variable)
         # For now, allow access from localhost (main domain backend)
@@ -768,6 +768,6 @@ def test_documents():
             'PUT /documents/<id>',
             'DELETE /documents/<id>',
             'GET /documents/<id>/download',
-            'GET /documents/all (for main domain admins)'
+            'GET /documents/all (for main domain access)'
         ]
     }), 200

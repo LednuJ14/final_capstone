@@ -119,7 +119,7 @@ class MaintenanceRequest(db.Model):
     @property
     def is_overdue(self):
         """Check if request is overdue."""
-        status_str = self.status.value if hasattr(self.status, 'value') else str(self.status)
+        status_str = str(self.status).lower()
         if self.scheduled_date and status_str not in ['completed', 'cancelled']:
             return datetime.now(timezone.utc) > self.scheduled_date
         return False
@@ -139,9 +139,9 @@ class MaintenanceRequest(db.Model):
             'property_id': self.property_id,
             'title': self.title,
             'description': self.description,
-            'category': self.category.value if hasattr(self.category, 'value') else str(self.category),
-            'priority': self.priority.value if hasattr(self.priority, 'value') else str(self.priority),
-            'status': self.status.value if hasattr(self.status, 'value') else str(self.status),
+            'category': str(self.category),
+            'priority': str(self.priority),
+            'status': str(self.status),
             'assigned_to': self.assigned_to,
             'scheduled_date': self.scheduled_date.isoformat() if self.scheduled_date else None,
             'estimated_completion': self.estimated_completion.isoformat() if self.estimated_completion else None,

@@ -27,16 +27,19 @@ class Staff(db.Model):
     # Use String type instead of Enum to avoid validation issues with database enum values
     # Database enum: 'maintenance','security','cleaning','manager','admin_assistant','other'
     staff_role = db.Column(db.String(20), nullable=False)
+    property_id = db.Column(db.Integer, db.ForeignKey('properties.id'), nullable=False, index=True)  # Staff belongs to specific property
     created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc), nullable=False)
     
     # Relationships
     # Define user relationship with back_populates to match User model (which now uses back_populates)
     user = db.relationship('User', back_populates='staff_profile')
+    property_obj = db.relationship('Property', foreign_keys=[property_id], backref='staff_members')
     
-    def __init__(self, user_id, employee_id, staff_role, **kwargs):
+    def __init__(self, user_id, employee_id, staff_role, property_id, **kwargs):
         self.user_id = user_id
         self.employee_id = employee_id
+        self.property_id = property_id
         # Convert enum to string if needed
         if hasattr(staff_role, 'value'):
             self.staff_role = staff_role.value
@@ -115,6 +118,7 @@ class Staff(db.Model):
             'user_id': self.user_id,
             'employee_id': self.employee_id,
             'staff_role': staff_role_str,
+            'property_id': self.property_id,
             # Backward compatibility fields (using properties)
             'job_title': self.job_title,
             'department': self.department,

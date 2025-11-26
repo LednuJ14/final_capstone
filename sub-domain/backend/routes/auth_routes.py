@@ -12,6 +12,45 @@ from app import db
 from models.user import User, UserRole
 from models.tenant import Tenant
 
+def staff_belongs_to_property(user_id, property_id):
+    """
+    Check if a staff user belongs to a specific property.
+    Returns True if staff has property_id matching the requested property.
+    """
+    try:
+        from models.staff import Staff
+        from sqlalchemy import text
+        
+        # Get staff profile and check if it belongs to this property
+        staff = db.session.execute(text(
+            "SELECT id, property_id FROM staff WHERE user_id = :user_id AND property_id = :property_id"
+        ), {
+            'user_id': user_id,
+            'property_id': property_id
+        }).first()
+        
+        if staff:
+            current_app.logger.info(f"Staff {user_id} belongs to property {property_id}")
+            return True
+        
+        # Debug: Check if staff exists for any property
+        try:
+            debug_staff = db.session.execute(text(
+                "SELECT id, property_id FROM staff WHERE user_id = :user_id"
+            ), {'user_id': user_id}).first()
+            if debug_staff:
+                current_app.logger.warning(f"Staff {user_id} exists but for property {debug_staff[1]}, not {property_id}")
+            else:
+                current_app.logger.warning(f"Staff {user_id} does not exist in staff table at all")
+        except Exception as debug_error:
+            current_app.logger.warning(f"Error checking staff debug info: {str(debug_error)}")
+        
+        return False
+                
+    except Exception as e:
+        current_app.logger.error(f"Error checking staff property membership: {str(e)}", exc_info=True)
+        return False
+
 def tenant_belongs_to_property(user_id, property_id):
     """
     Check if a tenant user belongs to a specific property.
@@ -383,8 +422,9 @@ def get_role_value(role):
         role_str = str(role).upper()
     
     # Map database values to lowercase for consistency
+    # ADMIN is not supported in subdomain - map to property_manager for backward compatibility
     role_map = {
-        'ADMIN': 'admin',
+        'ADMIN': 'property_manager',  # Map ADMIN to property_manager in subdomain
         'MANAGER': 'property_manager',
         'STAFF': 'staff',
         'TENANT': 'tenant'
@@ -540,6 +580,15 @@ def login():
         # Log successful password verification
         current_app.logger.info(f"Password verified successfully for user_id={user.id}, role={user.role}")
         
+        # Block ADMIN users from logging into subdomain
+        user_role_str = str(user.role).upper() if user.role else ''
+        if user_role_str == 'ADMIN':
+            current_app.logger.warning(f"Admin login attempt blocked - admin {user.id} tried to login to subdomain")
+            return jsonify({
+                'error': 'Admin accounts cannot access property subdomains. Please use the main domain portal.',
+                'code': 'ADMIN_SUBDOMAIN_BLOCKED'
+            }), 403
+        
         # Check if 2FA is enabled - send email code if enabled (like main domain)
         if getattr(user, 'two_factor_enabled', False):
             from flask_mail import Message
@@ -571,9 +620,30 @@ def login():
         user_role_str = str(user.role).upper() if user.role else 'UNKNOWN'
         current_app.logger.info(f"Login attempt - user_id={user.id}, role={user_role_str}, is_tenant={user.is_tenant()}, is_staff={user.is_staff()}, is_property_manager={user.is_property_manager()}")
         
+        # Check if this is a main-domain login attempt (staff cannot login to main-domain)
+        # Main-domain typically runs on port 5000, sub-domain on port 5001
+        # Also check Origin/Host headers to detect main-domain
+        origin = request.headers.get('Origin', '')
+        host = request.headers.get('Host', '')
+        is_main_domain = False
+        
+        # Check if request is from main-domain (port 5000 or no subdomain pattern)
+        if ':5000' in origin or ':5000' in host:
+            is_main_domain = True
+        elif origin and 'localhost' in origin and '.' not in origin.split('//')[1].split(':')[0]:
+            # No subdomain in origin (e.g., localhost:3000 without subdomain)
+            is_main_domain = True
+        
+        # Block staff from logging into main-domain
+        if user.is_staff() and is_main_domain:
+            current_app.logger.warning(f"Staff login attempt blocked - staff {user.id} tried to login to main-domain")
+            return jsonify({
+                'error': 'Staff accounts can only login to property subdomains, not the main domain.',
+                'code': 'STAFF_MAIN_DOMAIN_BLOCKED'
+            }), 403
+        
         # For tenants: STRICTLY check if they belong to this property subdomain
         # Tenants can ONLY login to the property subdomain where they have an active rental
-        # Staff and Property Managers can login to any property subdomain (no property validation required)
         if user.is_tenant():
             try:
                 # CRITICAL: Get property_id from request (subdomain, header, query param, or body)
@@ -683,6 +753,76 @@ def login():
                 
             except Exception as tenant_check_error:
                 current_app.logger.error(f"Error checking tenant property access: {str(tenant_check_error)}", exc_info=True)
+                # For security, deny login if we can't verify property access
+                return jsonify({
+                    'error': 'Unable to verify property access. Please contact support.',
+                    'code': 'PROPERTY_VERIFICATION_FAILED'
+                }), 403
+        
+        # For staff: STRICTLY check if they belong to this property subdomain
+        # Staff can ONLY login to the property subdomain where they are assigned
+        elif user.is_staff():
+            try:
+                # Get property_id from request (subdomain, header, query param, or body)
+                property_id = get_property_id_from_request(data=data)
+                
+                # Log for debugging
+                current_app.logger.info(f"Staff login attempt - user_id={user.id}, email={user.email}, extracted property_id={property_id}")
+                
+                if not property_id:
+                    return jsonify({
+                        'error': 'Property context is required. Please login through your property portal.',
+                        'code': 'PROPERTY_CONTEXT_REQUIRED',
+                        'message': 'You must login through the specific property subdomain where you are assigned.'
+                    }), 403
+                
+                # Verify staff belongs to THIS SPECIFIC property from the request
+                # This prevents staff from logging into other property subdomains
+                if not staff_belongs_to_property(user.id, property_id):
+                    # Get property name for better error message
+                    from models.property import Property
+                    property_obj = Property.query.get(property_id)
+                    property_name = property_obj.name if property_obj else f"Property {property_id}"
+                    
+                    # Also get staff's actual property for helpful error message
+                    from sqlalchemy import text
+                    staff_property_name = None
+                    try:
+                        staff_property = db.session.execute(text(
+                            """
+                            SELECT p.name FROM staff s
+                            INNER JOIN properties p ON s.property_id = p.id
+                            WHERE s.user_id = :user_id
+                            LIMIT 1
+                            """
+                        ), {
+                            'user_id': user.id
+                        }).first()
+                        
+                        if staff_property:
+                            staff_property_name = staff_property[0]
+                    except Exception as prop_error:
+                        current_app.logger.warning(f"Error getting staff's property name: {str(prop_error)}")
+                    
+                    error_msg = f'You do not have access to {property_name}.'
+                    if staff_property_name:
+                        error_msg += f' You can only access {staff_property_name} where you are assigned.'
+                    else:
+                        error_msg += ' You can only access the property where you are assigned.'
+                    
+                    return jsonify({
+                        'error': error_msg,
+                        'code': 'PROPERTY_ACCESS_DENIED',
+                        'property_id': property_id,
+                        'attempted_property': property_name,
+                        'your_property': staff_property_name
+                    }), 403
+                
+                # Log successful property validation
+                current_app.logger.info(f"Staff {user.id} validated for property {property_id}")
+                
+            except Exception as staff_check_error:
+                current_app.logger.error(f"Error checking staff property access: {str(staff_check_error)}", exc_info=True)
                 # For security, deny login if we can't verify property access
                 return jsonify({
                     'error': 'Unable to verify property access. Please contact support.',
@@ -1081,6 +1221,61 @@ def verify_two_factor():
         
         if str(user.two_factor_email_code) != str(code):
             return jsonify({'error': 'Invalid code'}), 400
+        
+        # Block ADMIN users from logging into subdomain
+        user_role_str = str(user.role).upper() if user.role else ''
+        if user_role_str == 'ADMIN':
+            current_app.logger.warning(f"Admin 2FA login attempt blocked - admin {user.id} tried to login to subdomain")
+            return jsonify({
+                'error': 'Admin accounts cannot access property subdomains. Please use the main domain portal.',
+                'code': 'ADMIN_SUBDOMAIN_BLOCKED'
+            }), 403
+        
+        # Check if this is a main-domain login attempt (staff cannot login to main-domain)
+        origin = request.headers.get('Origin', '')
+        host = request.headers.get('Host', '')
+        is_main_domain = False
+        
+        if ':5000' in origin or ':5000' in host:
+            is_main_domain = True
+        elif origin and 'localhost' in origin and '.' not in origin.split('//')[1].split(':')[0]:
+            is_main_domain = True
+        
+        # Block staff from logging into main-domain
+        if user.is_staff() and is_main_domain:
+            current_app.logger.warning(f"Staff 2FA login attempt blocked - staff {user.id} tried to login to main-domain")
+            return jsonify({
+                'error': 'Staff accounts can only login to property subdomains, not the main domain.',
+                'code': 'STAFF_MAIN_DOMAIN_BLOCKED'
+            }), 403
+        
+        # For staff: Check if they belong to this property subdomain
+        if user.is_staff():
+            try:
+                request_data = request.get_json() or {}
+                property_id = get_property_id_from_request(data=request_data)
+                
+                if not property_id:
+                    return jsonify({
+                        'error': 'Property context is required. Please login through your property portal.',
+                        'code': 'PROPERTY_CONTEXT_REQUIRED'
+                    }), 403
+                
+                if not staff_belongs_to_property(user.id, property_id):
+                    from models.property import Property
+                    property_obj = Property.query.get(property_id)
+                    property_name = property_obj.name if property_obj else f"Property {property_id}"
+                    
+                    return jsonify({
+                        'error': f'You do not have access to {property_name}. You can only access the property where you are assigned.',
+                        'code': 'PROPERTY_ACCESS_DENIED'
+                    }), 403
+            except Exception as staff_check_error:
+                current_app.logger.error(f"Error checking staff property access in 2FA: {str(staff_check_error)}", exc_info=True)
+                return jsonify({
+                    'error': 'Unable to verify property access. Please contact support.',
+                    'code': 'PROPERTY_VERIFICATION_FAILED'
+                }), 403
         
         # Clear 2FA code and create tokens
         user.two_factor_email_code = None

@@ -878,11 +878,230 @@ class ApiService {
   }
 
   // Requests
-  async getMaintenanceRequests() { return []; }
-  async getRequestsDashboard() { return {}; }
-  async createMaintenanceRequest() { return { success: true }; }
-  async updateMaintenanceRequest() { return { success: true }; }
-  async deleteMaintenanceRequest() { return { success: true }; }
+  async getMaintenanceRequests(tenantId = null, status = null, category = null, priority = null, page = 1, perPage = 20) {
+    try {
+      const params = new URLSearchParams();
+      if (tenantId) params.append('tenant_id', tenantId);
+      if (status) params.append('status', status);
+      if (category) params.append('category', category);
+      if (priority) params.append('priority', priority);
+      params.append('page', page);
+      params.append('per_page', perPage);
+      
+      const response = await this.makeRequest(`/requests?${params.toString()}`, {
+        baseURL: this.propertyBaseURL
+      });
+      
+      return response.requests || [];
+    } catch (error) {
+      console.error('Failed to fetch maintenance requests:', error);
+      return [];
+    }
+  }
+  
+  async getRequestsDashboard() {
+    try {
+      const response = await this.makeRequest('/requests/dashboard', {
+        baseURL: this.propertyBaseURL
+      });
+      return response || {};
+    } catch (error) {
+      console.error('Failed to fetch requests dashboard:', error);
+      return {};
+    }
+  }
+  
+  async createMaintenanceRequest(requestData) {
+    try {
+      // Map frontend fields to backend fields
+      const backendData = {
+        title: requestData.issue || requestData.title,
+        description: requestData.description,
+        category: (requestData.issue_category || requestData.category || 'other').toLowerCase(),
+        priority: (requestData.priority_level || requestData.priority || 'medium').toLowerCase(),
+        unit_id: requestData.unit_id || null,
+        images: requestData.images || null,
+        attachments: requestData.attachments || null
+      };
+      
+      const response = await this.makeRequest('/requests', {
+        method: 'POST',
+        body: JSON.stringify(backendData),
+        baseURL: this.propertyBaseURL
+      });
+      
+      return response;
+    } catch (error) {
+      console.error('Failed to create maintenance request:', error);
+      throw error;
+    }
+  }
+  
+  async getMaintenanceRequest(requestId) {
+    try {
+      const response = await this.makeRequest(`/requests/${requestId}`, {
+        baseURL: this.propertyBaseURL
+      });
+      return response.request || response;
+    } catch (error) {
+      console.error('Failed to fetch maintenance request:', error);
+      throw error;
+    }
+  }
+  
+  async updateMaintenanceRequest(requestId, requestData) {
+    try {
+      const response = await this.makeRequest(`/requests/${requestId}`, {
+        method: 'PUT',
+        body: JSON.stringify(requestData),
+        baseURL: this.propertyBaseURL
+      });
+      return response;
+    } catch (error) {
+      console.error('Failed to update maintenance request:', error);
+      throw error;
+    }
+  }
+  
+  async deleteMaintenanceRequest(requestId) {
+    try {
+      const response = await this.makeRequest(`/requests/${requestId}`, {
+        method: 'DELETE',
+        baseURL: this.propertyBaseURL
+      });
+      return response;
+    } catch (error) {
+      console.error('Failed to delete maintenance request:', error);
+      throw error;
+    }
+  }
+  
+  async addRequestFeedback(requestId, feedbackData) {
+    try {
+      const response = await this.makeRequest(`/requests/${requestId}/feedback`, {
+        method: 'POST',
+        body: JSON.stringify(feedbackData),
+        baseURL: this.propertyBaseURL
+      });
+      return response;
+    } catch (error) {
+      console.error('Failed to add request feedback:', error);
+      throw error;
+    }
+  }
+
+  // Notifications
+  async getNotifications(filters = {}) {
+    try {
+      const params = new URLSearchParams();
+      if (filters.page) params.append('page', filters.page);
+      if (filters.per_page) params.append('per_page', filters.per_page);
+      if (filters.is_read !== undefined) params.append('is_read', filters.is_read);
+      if (filters.type) params.append('type', filters.type);
+      if (filters.priority) params.append('priority', filters.priority);
+      
+      const queryString = params.toString();
+      const url = `/notifications${queryString ? `?${queryString}` : ''}`;
+      
+      const response = await this.makeRequest(url, {
+        baseURL: this.propertyBaseURL
+      });
+      
+      return response;
+    } catch (error) {
+      console.error('Failed to fetch notifications:', error);
+      return { notifications: [], pagination: {} };
+    }
+  }
+
+  async getUnreadNotificationCount() {
+    try {
+      const response = await this.makeRequest('/notifications/unread-count', {
+        baseURL: this.propertyBaseURL
+      });
+      return response.unread_count || 0;
+    } catch (error) {
+      console.error('Failed to fetch unread notification count:', error);
+      return 0;
+    }
+  }
+
+  async getNotification(notificationId) {
+    try {
+      const response = await this.makeRequest(`/notifications/${notificationId}`, {
+        baseURL: this.propertyBaseURL
+      });
+      return response;
+    } catch (error) {
+      console.error('Failed to fetch notification:', error);
+      throw error;
+    }
+  }
+
+  async markNotificationAsRead(notificationId) {
+    try {
+      const response = await this.makeRequest(`/notifications/${notificationId}/read`, {
+        method: 'PUT',
+        baseURL: this.propertyBaseURL
+      });
+      return response;
+    } catch (error) {
+      console.error('Failed to mark notification as read:', error);
+      throw error;
+    }
+  }
+
+  async markNotificationAsUnread(notificationId) {
+    try {
+      const response = await this.makeRequest(`/notifications/${notificationId}/unread`, {
+        method: 'PUT',
+        baseURL: this.propertyBaseURL
+      });
+      return response;
+    } catch (error) {
+      console.error('Failed to mark notification as unread:', error);
+      throw error;
+    }
+  }
+
+  async markAllNotificationsAsRead() {
+    try {
+      const response = await this.makeRequest('/notifications/mark-all-read', {
+        method: 'PUT',
+        baseURL: this.propertyBaseURL
+      });
+      return response;
+    } catch (error) {
+      console.error('Failed to mark all notifications as read:', error);
+      throw error;
+    }
+  }
+
+  async deleteNotification(notificationId) {
+    try {
+      const response = await this.makeRequest(`/notifications/${notificationId}`, {
+        method: 'DELETE',
+        baseURL: this.propertyBaseURL
+      });
+      return response;
+    } catch (error) {
+      console.error('Failed to delete notification:', error);
+      throw error;
+    }
+  }
+
+  async deleteAllReadNotifications() {
+    try {
+      const response = await this.makeRequest('/notifications/delete-all-read', {
+        method: 'DELETE',
+        baseURL: this.propertyBaseURL
+      });
+      return response;
+    } catch (error) {
+      console.error('Failed to delete all read notifications:', error);
+      throw error;
+    }
+  }
 
   // Staff
   async getStaff() {

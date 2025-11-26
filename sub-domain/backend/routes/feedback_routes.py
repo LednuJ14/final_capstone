@@ -127,7 +127,7 @@ def get_feedback():
         
         # Property managers and staff can see all feedback for their property
         # If no property_id, they see all feedback (they can filter by property_id in query param)
-        elif user_role not in ['MANAGER', 'PROPERTY_MANAGER', 'STAFF', 'ADMIN']:
+        elif user_role not in ['MANAGER', 'PROPERTY_MANAGER', 'STAFF']:
             return jsonify({'error': 'Access denied'}), 403
         
         # Apply filters from query parameters
@@ -318,6 +318,15 @@ def create_feedback():
         db.session.add(feedback)
         db.session.commit()
         
+        # Create notification for property manager (only for tenant feedback)
+        if user_role == 'TENANT' and property_id:
+            try:
+                from services.notification_service import NotificationService
+                NotificationService.notify_pm_feedback_submitted(feedback)
+            except Exception as notif_error:
+                # Don't fail feedback submission if notification fails
+                current_app.logger.warning(f"Failed to create PM notification for feedback {feedback.id}: {str(notif_error)}")
+        
         # Return created feedback
         feedback_dict = feedback.to_dict()
         return jsonify({
@@ -383,7 +392,7 @@ def get_feedback_detail(feedback_id):
                 return jsonify({'error': 'Access denied. You can only view your own feedback.'}), 403
         
         # Property managers and staff can see all feedback for their property
-        elif user_role in ['MANAGER', 'PROPERTY_MANAGER', 'STAFF', 'ADMIN']:
+        elif user_role in ['MANAGER', 'PROPERTY_MANAGER', 'STAFF']:
             # Get property_id from request
             property_id = get_property_id_from_request()
             
@@ -411,7 +420,7 @@ def get_feedback_detail(feedback_id):
 @feedback_bp.route('/<int:feedback_id>', methods=['PUT'])
 @jwt_required()
 def update_feedback(feedback_id):
-    """Update feedback status. Only property managers and admins can update feedback status (staff cannot respond to tenant feedback)."""
+    """Update feedback status. Only property managers can update feedback status (staff cannot respond to tenant feedback)."""
     try:
         user_id = get_jwt_identity()
         try:
@@ -432,8 +441,8 @@ def update_feedback(feedback_id):
         else:
             user_role = str(current_user.role).upper()
         
-        # Only property managers and admins can update feedback (staff cannot respond to tenant feedback)
-        if user_role not in ['MANAGER', 'PROPERTY_MANAGER', 'ADMIN']:
+        # Only property managers can update feedback (staff cannot respond to tenant feedback)
+        if user_role not in ['MANAGER', 'PROPERTY_MANAGER']:
             return jsonify({'error': 'Access denied. Staff cannot update feedback status.'}), 403
         
         feedback = Feedback.query.get(feedback_id)
@@ -517,7 +526,7 @@ def get_feedback_dashboard():
             user_role = str(current_user.role).upper()
         
         # Only property managers and staff can see dashboard
-        if user_role not in ['MANAGER', 'PROPERTY_MANAGER', 'STAFF', 'ADMIN']:
+        if user_role not in ['MANAGER', 'PROPERTY_MANAGER', 'STAFF']:
             return jsonify({'error': 'Access denied'}), 403
         
         # Get property_id from request

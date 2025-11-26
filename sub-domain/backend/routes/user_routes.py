@@ -9,7 +9,7 @@ user_bp = Blueprint('users', __name__)
 @user_bp.route('/', methods=['GET'])
 @jwt_required()
 def get_users():
-    """Get list of users (admin only)."""
+    """Get list of users (property manager only)."""
     try:
         claims = get_jwt()
         if claims.get('role') != 'property_manager':
